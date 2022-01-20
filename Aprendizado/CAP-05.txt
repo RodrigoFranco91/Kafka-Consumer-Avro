@@ -1,0 +1,36 @@
+Neste Capítulo falamos sobre Rest Proxy:
+
+
+- O Rest Proxy é uma interface REST para o nosso Kafka, ou seja, vai facilitar a gente produzir e consumir mensagem via API;
+
+- O Rest Proxy também vai liberar via API diversas métricas do nosso cluster;
+
+- Para saber mais consultar o site: https://docs.confluent.io/
+
+- Vamos agorar adicionar no docker-compose o serviço de Rest Proxy:
+
+  rest-proxy:
+    image: confluentinc/cp-kafka-rest:5.5.1
+    depends_on:
+      - zookeeper
+      - broker
+      - schema-registry
+    ports:
+      - 8082:8082
+    hostname: rest-proxy
+    container_name: rest-proxy
+    environment:
+      KAFKA_REST_HOST_NAME: rest-proxy
+      KAFKA_REST_BOOTSTRAP_SERVERS: 'broker:29092'
+      KAFKA_REST_LISTENERS: "http://0.0.0.0:8082"
+      KAFKA_REST_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+
+	
+Tenha atenção com as variáveis de ambiente, pois algumas devem apontar para outros "serviços"
+
+
+- Agora podemos bater (fazer requisição) para API Rest Proxy que a mesma irá criar um tópico, consultar os tópicos, enviar mensagem, consumir mensagem do
+nosso Kafka (há muitos endpoints para vários serviços). Foi disponibilizado uma collection do Postman com as operações básicas.
+
+- Tenha em mente que muitas operações necessitam do ID do Cluster, por exemplo para criar um Topico via Api Rest precisamos passar o ID do Cluster e o mesmo
+pode ser obtido com a consulta, neste caso acessando localhost:8082/v3/cluster que teremos o retorno do cluster id. Já para enviar mensagem precisamos passar o nome do topico.

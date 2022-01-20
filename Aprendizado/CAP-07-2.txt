@@ -1,0 +1,223 @@
+Neste Capítulo vamos fazer um Sistema de Spring com Kafka completo (essa parte é focada na criação de Producer e Consumer).
+
+
+- Vamos agorar criar as classes People e Book, ambas serão Entity e devem ser criada dentro do pacote domain. Os atributos devem seguir os atributos do Avro. Veja como ficou:
+
+	@Entity
+	public class People {
+
+	    @Id
+	    @GeneratedValue(generator = "uuid")
+	    @GenericGenerator(name = "uuid", strategy = "uuid2")
+	    private String id;
+	    private String name;
+	    private String cpf;
+
+	    @OneToMany(mappedBy = "people")
+	    private List<Book> books;
+	}
+
+	@Entity
+	public class Book {
+
+	    @Id
+	    @GeneratedValue(generator = "uuid")
+	    @GenericGenerator(name = "uuid", strategy = "uuid2")
+	    private String id;
+	    private String name;
+
+	    @ManyToOne
+	    private People people;
+	}
+
+	Podemos rodar a classe principal do Spring e ver se foram criadas as tabelas People e Book. Após subir a aplicação basta acessar via navegador o
+	endereço localhost:8080/h2-console (as vezes o URL do banco aparece errado, temos que colocar igual do arquivo application.properties)
+
+
+- Agora vamos criar o produtor. Para isso vamos criar no pacote producer a classe PeopleProducer. Lembre-se que a mensagem criada agora tem um contrato a ser seguido, no caso o Avro, logo o tipo usado no atributo KafkaTemplate<> será <String, People> e esse People não é do pacote domain e sim do pacote target. Veja como ficou:
+
+	@Slf4j
+	@Component
+	public class PeopleProducer {
+
+	    private String topicName;
+	    private KafkaTemplate<String, People> kafkaTemplate;
+
+	    public PeopleProducer(@Value("${topic.name}")String topicName, KafkaTemplate<String, People> kafkaTemplate) {
+	        this.topicName = topicName;
+	        this.kafkaTemplate = kafkaTemplate;
+	    }
+
+	    public void sendMessage(People people){
+	        kafkaTemplate.send(topicName, people).addCallback(
+	                success -> log.info("Menssagem enviada com sucesso."),
+	                failure -> log.error("Falha ao enviar a mensagem")
+	        );
+	    }
+	}
+
+
+-Vamos criar agora a classe PeopleController dentro do pacote controller, esta vai receber a mensagem de entrada. Veja como vai ficar:
+
+	1) Criar o pacote DTO e dentro deste a classe PeopleDTO, que ficará assim:
+
+		@Getter
+		public class PeopleDto {
+    
+		    private String name;
+		    private String cpf;
+		    private List<String> books;
+		}
+
+	2) Criar no pacote controller a classe PeopleController, que ficará assim:
+
+		@RestController
+		@RequestMapping("/peoples")
+		@AllArgsConstructor
+		public class PeopleController {
+
+		    private PeopleProducer peopleProducer;
+
+		    @PostMapping
+		    public ResponseEntity<Void> sendMessage(@RequestBody PeopleDto peopleDto){
+
+		        var id = UUID.randomUUID().toString();
+
+		        //Criando o People de Avro
+		        var message = People.newBuilder()
+		                .setId(id)
+		                .setName(peopleDto.getName())
+		                .setCpf(peopleDto.getCpf())
+		                .setBooks(peopleDto.getBooks().stream().map(p -> (CharSequence) p).collect(Collectors.toList()))
+		                .build();
+
+		        peopleProducer.sendMessage(message);
+
+		        return ResponseEntity.status(HttpStatus.CREATED).build();
+		    }
+
+		}
+
+	Veja que a variável menssagem é o People que segue o contrato Avro. Quando o Avro tem um atributo do tipo array ele espera como argumento um
+	CharSequence, logo tivemos que transformar a lista de livro (STRING) em CharSequence.
+
+	3) Agora podemos subir a aplicação e fazer o teste no postaman, acessando localhost:8080/peoples fazendo um Post.
+
+--##--
+
+- Agora vamos criar nosso Consumidor:
+
+	1) Vamos criar nossa classe PeopleConsumer dentro do pacote consumer. Ela ficará assim:
+
+		@Slf4j
+		@Component
+		public class PeopleConsumer {
+
+		    //Acknowledgment é para indicar que a mensagem foi lida! Deixamos isso manual
+		    @KafkaListener(topics = "${topic.name}")
+		    public void consumer(ConsumerRecord<String, People> mensagem, Acknowledgment ack){
+
+		        var people = mensagem.value();
+
+		        log.info(people.toString());
+
+		        //Confirmo que a mensagem foi lida.
+		        ack.acknowledge();
+
+		    }
+		}
+
+	No application.propeties configuramos para eu sinalizar ao Kafka quando uma mensagem foi lida, ou seja, tirei isso da responsabilidade do Kafka e o
+	Acknowledgment faz isso (ack.acknowledge()).
+
+
+- Agora vamos persistir a mensagem no banco de dados:
+
+	1) Vamos altera a clase People (do pacote domain) e a classe Book, ficando assim:
+
+		@AllArgsConstructor
+		@NoArgsConstructor
+		@Getter
+		@Setter
+		@Builder
+		@Entity
+		public class People {
+
+	    		@Id
+	    		@GeneratedValue(generator = "uuid")
+	    		@GenericGenerator(name = "uuid", strategy = "uuid2")
+	    		private String id;
+	    		private String name;
+	    		private String cpf;
+
+	    		@OneToMany(mappedBy = "people", cascade = CascadeType.ALL)
+	    		private List<Book> books;
+		}
+
+		@AllArgsConstructor
+		@NoArgsConstructor
+		@Getter
+		@Setter
+		@Builder
+		@Entity
+		public class Book {
+
+		    	@Id
+		    	@GeneratedValue(generator = "uuid")
+		    	@GenericGenerator(name = "uuid", strategy = "uuid2")
+		    	private String id;
+		    	private String name;
+
+		    	@ManyToOne
+		    	private People people;
+			}
+	
+	Colocamos anotações que criam Getters, Setters e Construtores para podermos persistir esses objeots. Colocamos também um cascade em People, assim
+	ele já salva junto os Books.
+
+	2) Vamos criar o pacote repository e dentro deste criar a inteface PeopleRepository. Vai ficar assim:
+
+		@Repository
+		public interface PeopleRepository extends JpaRepository<People, String> {
+		}
+
+	3) Agora temos que alterar a classe PeopleConsumer. Nela temos que injetar o PeopleRepository, criar um objeto People (domain) com os dados da 	mensagem e salvar o mesmo. Veja como ficou:
+
+		@Slf4j
+		@AllArgsConstructor
+		@Component
+		public class PeopleConsumer {
+
+		    private PeopleRepository peopleRepository;
+
+		    //Acknowledgment é para indicar que a mensagem foi lida! Deixamos isso manual
+		    @KafkaListener(topics = "${topic.name}")
+		    public void consumer(ConsumerRecord<String, People> mensagem, Acknowledgment ack){
+
+		        var people = mensagem.value();
+
+		        //É como se estivessemos dando new People(), mas com lombok.
+		        var peopleEntity = br.com.springkafka.domain.People.builder().build();
+
+		        //Motando o objeto People de Domain (Entity)
+		        peopleEntity.setId(people.getId().toString());
+		        peopleEntity.setCpf(people.getCpf().toString());
+		        peopleEntity.setName(people.getName().toString());
+
+		        //Pegando cada Livro em String (CharSequence) e transformando na entidade Book e depois setando no People Domain
+		        peopleEntity.setBooks(people.getBooks().stream()
+		                .map(book -> Book.builder()
+		                        .people(peopleEntity)
+		                        .name(book.toString())
+		                        .build()).collect(Collectors.toList()));
+        		
+			peopleRepository.save(peopleEntity);
+
+		        //Confirmo que a mensagem foi lida.
+		        ack.acknowledge();
+
+		    }
+		}
+
+
+- Uma boa prática agora seria separar o Producer e Consumer em projetos distintos, pois na vida real é isso que acontece. Podemos fazer cum ctrl-x e ctrl-v e deixar em cada um apenas o que faz parte do seu contexto. Faremos isso no capitulo extra.

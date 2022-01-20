@@ -1,0 +1,20 @@
+Neste Capítulo falamos sobre Kafkadrop:
+
+
+- O Kafdrop é uma interface gráfica (Web) para usuário que permite: listar os tópicos, visualizar o grupos de consumidores, as partições e até mesmo as mensagens.
+
+- Vamos adicionar o mesmo no arquivo docker-compose (para rodar é docker-compose up -d). Basta adicionar o trecho:
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:3.27.0
+    depends_on:
+      - broker
+    ports:
+      - 9000:9000
+    environment:
+      KAFKA_BROKERCONNECT: broker:29092
+
+Veja que a variável de ambiente é para indicar qual Broker Kafka vamos usar.
+
+- Após subir o mesmo, podemos acessar via navegador o endereço: localhost:9000
+Podemos criar/deletar um tópico através desse serviço.

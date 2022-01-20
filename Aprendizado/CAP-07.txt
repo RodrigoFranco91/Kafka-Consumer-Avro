@@ -1,0 +1,141 @@
+Neste Capítulo vamos fazer um Sistema de Spring com Kafka completo (essa parte é focada na configuração).
+
+
+- Vamos agora criar um Projeto usando todas as tecnologias que aprendemos até agora.
+
+- Vamos acessar o site: https://start.spring.io/ e criar um Projeto do Spring para nós. Vamos adicionar as dependencias: Spring Web, Lombok, Spring Data JPA, H2 Database e o Spring for Apache Kafka. Tenha em mente em usar no campo Package name o mesmo valor que colocamos no nosso arquivo avro, no caso, 
+People.avsc
+
+- Agora podemos abrir o projeto em nossa IDE. Temos ainda que configurar mais algumas coisas no pom.xml. No site start.spring.io não temos a dependencia do Avro,logo teremos que fazer isso por conta própria, além disso teremos outras configurações para fazer. Podemos pegar as dependencias no site maven repository ou acessando a documentação do Avro (https://avro.apache.org/docs/current/gettingstartedjava.html):
+
+	1) Dentro da tag <properties> que já tem a versão do Java, vamos colocar a versão do Avro que vamos usar:
+
+		<avro.version>1.11.0</avro.version>
+
+	2) Dentro da tag <dependencies> vamos colocar a dependencia do Avro e indicar que a versão a ser usada é a da tag <avro.version>, ficando assim:
+
+		<dependency>
+			<groupId>org.apache.avro</groupId>
+			<artifactId>avro</artifactId>
+			<version>${avro.version}</version>
+		</dependency>
+
+	3) Agroa temos que colocar o Plugin responsável de ler o Avro e criar a classe Java correspondente. Dentro da tag <plugins> colocar:
+
+		<plugin>
+			<groupId>org.apache.avro</groupId>
+		        <artifactId>avro-maven-plugin</artifactId>
+		        <version>${avro.version}</version>
+		        <executions>
+		        	<execution>
+		                	<phase>generate-sources</phase>
+		                        <goals>
+		                        	<goal>schema</goal>
+		                        </goals>
+		                        <configuration>
+		                        	<sourceDirectory>${project.basedir}/src/main/resources/avro/</sourceDirectory>
+		                        	<outputDirectory>${project.build.directory}/generated-sources</outputDirectory>
+		                        </configuration>
+				</execution>
+			</executions>
+		</plugin>
+
+	Veja que novamente estamos indicando que a versão do Avro a ser usada será o da tag <avro.version> e dentro da tag <configuration> indicamos
+	primeiro o diretório que vai ficar os arquivos Avro, no caso .avsc e depois indicamos para onde as classes Java geradas devem ir.
+	
+	4) Rode a classe Main para ver se tudo vai rodar (subir) corretamente.
+
+
+- Agora podemos pegar o  arquivo avro que criamos, no caso, people.avsc e colocar em nosso projeto e ver se o mesmo vai gerar uma classe Java. Anteriormente
+configuramos que o arquivo Avro vai ficar em resources/avro. Faça os passos a seguir:
+
+	1) Criar dentro da pasta resources a pasta avro;
+
+	2) Colocar dentro da pasta resources/avro o arquivo people.acsv
+
+	3) Rodar a task do maven: clean install (package funciona também) assim será gerado a classe People.java lá na pasta 	target/generated-source/br/com/springkafka
+
+
+- Agora é hora de configurar nossa aplicação com o Kafka, isso é feito no arquivo application.properties. Vamos configurar as variáveis de ambiente para
+indicar o endereço do nosso broken, o nome do topico, ou seja, é o que já fizemos, só que teremos mais novidades agora, uma é a configuração para podermos usar o Avro e a outra é que aquela configuração que fizemos em uma classe de Configuração (@Bean) será feita aqui também. Veja como ficou:
+
+	#Config do Kafka:
+	topic.name=people
+	spring.kafka.bootstrap-servers=localhost:9092
+	spring.kafka.properties.specific.avro.reader=true
+	spring.kafka.properties.schema.registry.url=http://localhost:8081
+
+	#Config do Consumer:
+	spring.kafka.consumer.group-id=group_id
+	spring.kafka.consumer.auto-offset-reset=earliest
+	spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+	spring.kafka.consumer.value-deserializer=io.confluent.kafka.serializers.KafkaAvroDeserializer
+	spring.kafka.consumer.enable-auto-commit=false
+	spring.kafka.listener.ack-mode=MANUAL_IMMEDIATE
+
+	#Config do Producer:
+	spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer
+	spring.kafka.producer.value-serializer=io.confluent.kafka.serializers.KafkaAvroSerializer
+
+	#Config de banco de dados:
+	spring.datasource.url=jdbc:h2:mem:testdb
+	spring.datasource.driverClassName=org.h2.Driver
+	spring.datasource.username=sa
+	spring.datasource.password=password
+	spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+	spring.h2.console.enabled=true
+	spring.h2.console.path=/h2-console
+	
+	Atenção em dois pontos!!!:
+
+		1) Estamos usando o auto-commit como falso e por isso tivemos que colocar o ack-mode como manual. Se tivesse auto-commit como true o kafka
+		sempre marcaria a mensagem como lida após um Consumer pegar a mensagem, estando em false caberá a nós marcarmos a mensagem como Lida, ou 			seja, poderemos indicar o momento, por exemplo após salvar a mensagem no banco eu digo que foi lida;
+
+		2) Estamos usando como deserializer o KafkaAvroDeserializer, logo precisamos adicionar no pom.xml uma dependencia que faz isso. Só que
+		essa dependencia não se encontra no maven repository, então teremos também que colocar no pom.xml o repositório que é indicado via tag
+		repository. Veja o que adicionamos no pom.xml:
+
+			<repositories>
+        			<repository>
+            				<id>confluent</id>
+            				<url>https://packages.confluent.io/maven/</url>
+        			</repository>
+    			</repositories>
+
+			<dependency>
+				<groupId>io.confluent</groupId>
+				<artifactId>kafka-avro-serializer</artifactId>
+				<version>${kafka-confluent.version}</version>
+			</dependency>
+
+		Veja que estamos pegando a versão através do kafka-confluente.version, logo na tag <properties> foi adicionado:
+
+			<kafka-confluent.version>5.5.1</kafka-confluent.version>
+
+
+- Agora vamos criar uma classe que será rodada toda vez que subirmos o Spring e que vai criar para nós o topico, cujo nome deixamos configurado lá no
+arquivo application.properties:
+
+	1) Criar o pacote configuration de dentro deste a classe KafkaTopicConfiguration, que ficará assim:
+
+		@Configuration
+		public class KafkaTopicConfiguration {
+
+		    private String topicName;
+
+		    public KafkaTopicConfiguration(@Value("${topic.name}") String topicName) {
+		        this.topicName = topicName;
+		    }
+
+		    @Bean
+		    public NewTopic createTopic(){
+		        return new NewTopic(topicName, 1, (short) 1);
+		    }
+
+		}
+
+	Veja que o valor de topicName estamos pegando do application.properties e para isso usamos @Value
+
+	2) Podemos rodar a classe principal do Spring para ver se o tópico será criado. Lembre-se de subir os containers do docker-compose. Após isso 	verifice via Kafdrop (localhost:9000) se o tópico foi criado.
+
+	3) Na vida real, normalmente não será a aplicação que vai criar o tópico, mas vimos como é possivel fazer isso.

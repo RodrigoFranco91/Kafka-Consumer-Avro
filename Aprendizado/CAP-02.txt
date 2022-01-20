@@ -1,0 +1,257 @@
+Este capítulo foi feito a introdução do Kafka, Produtor e Consumido.
+
+
+- Kafka é uma plataforma de Streaming de Dados, ele recebe e envia bytes;
+
+- Kafka centraliza onde os sistemas conversam, os sistemas vão enviar e receber mensagem do Kafka. Funciona em tempo real!
+
+- Kafka trabalha junto com Zookeeper, esse é um sistema de armazenamento de chave/valor para configuração de sistemas distribuídos;
+
+- Estruturas do Kafka:
+	
+	- Tópicos: É como se fosse uma fila de dados, é onde as mensagens ficam de forma sequencial;
+	- Partições: É uma subdivisão do tópico, é de fato onde uma mensagem vai ficar armazenada;
+	- Offset: É o que identifica cada partição, é como se fosse um ponteiro, ele indica em qual partição estamos e o local (quadradinho) de cada 	partição.
+	- Produtores/Producer: É a aplicação que vai escrever em um tópico;
+	- Consumidor/Consumer: É a aplicação que vai ler de um tópico;
+
+- Temos que ter em mente o seguinte cenário:
+
+	1) Temos um Tópico chamado T com três partições (P1, P2 E P3);
+	2) Um produtor ao enviar a mensagem para T não podemos garantir em qual Partição vai cair, sabemos que vai para P1, P2 ou p3. O Kafka escolhe. Mas
+	temos uma certeza, toda mensagem com a mesma chave vai para a mesma partição;
+	3) Ao termos um Consumidor C1 ouvindo o Tópico T ele vai ouvir todas partições existentes! Se criamos um segundo Consumidor C2 para ouvir o tópico 	Teste também vai ouvir todas as partições existentes. Mas tem um ponto importante aqui, se os dois Consumidores forem do mesmo grupo, haverá uma 		divisão de partição, pensa agora que o Consumidor C1 e o segundo C2 estão no mesmo grupo o Kafka vai distribuir P1 e P2 para C1 e a P3 ficará para 		C2. Essa divisão é feita pelo Kafka, não podemos garantir a partição que cada Consumidor terá
+
+- Instalamos o programa Conduktor para criar tópicos, Consumer e Producer através de interface gráfica, pois sem ele teríamos que rodar comandos;
+
+- Caso queira usar via terminal, veja os comandos mais usados (Ambiente Windows, no linux basta rodar os arquivos .sh):
+
+
+	-Levantar Zookeeper:
+		.\bin\windows\zookeeper-server-start.bat .\config\zookeeper.properties
+
+	-Levantar o Kafka:
+		.\bin\windows\kafka-server-start.bat .\config\server.properties
+
+	-Criando um Tópico via terminal:
+		.\bin\windows\kafka-topics.bat --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic NOME_DO_TOPICO
+
+	-Listar tópicos:
+		.\bin\windows\kafka-topics.bat --list --bootstrap-server localhost:9092
+
+	-Criando um producer e enviar msg via terminal:
+		.\bin\windows\kafka-console-producer.bat --broker-list localhost:9092 --topic NOME_DO_TOPICO
+
+	-Cirando um Consumer e ouvindo a msg via terminal:
+		.\bin\windows\kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic LOJA_NOVO_PEDIDO --from-beginning
+
+	-Alterar para 3 partitions o tópico já criado:
+		.\bin\windows\kafka-topics.bat --alter --zookeeper localhost:2181 --topic ECOMMERCE_NEW_ORDER --partitions 3
+
+	-Listar os grupos e suas partitions:
+		.\bin\windows\kafka-consumer-groups.bat --all-groups --bootstrap-server localhost:9092 --describe
+
+- Para usar o Conduktor temos que subir o Zookeeper e depois o Kafka;
+
+
+- Criando um Produtor de Mensagem em Java com Spring (Kafka deve estar rodando!):
+
+	1) Criar um projeto Spring em https://start.spring.io/ Em dependencias colocamos Lombok, Spring Web e Spring For Apache Kafka
+
+	2) Vamos configuar em nosso producer o Broker e o Tópico que vamos usar. Então no arquivo application.properties devemos adicionar:
+
+		topic.name = cars
+
+		spring.kafka.bootstrap-servers=localhost:9092
+
+	3) Criar dentro do pacote DTO a classe CarDTO. Ela ficará assim:
+
+		@Data
+		@Builder
+		public class CarDTO {
+
+    		private String id;
+   		private String model;
+    		private String color;
+
+		}
+
+	Veja que usamos o Lombok, logo não precisamos fazer getters e setters, assim com o construtor.
+
+	4) Criar dentro da classe producer a classe CarProducer. Veja como ela vai ficar:
+		
+		@Service
+		public class CarProducer {
+
+		    private static final Logger logger = LoggerFactory.getLogger(CarProducer.class);
+		    private String topic;
+		    private KafkaTemplate<String, CarDTO> kafkaTemplate;
+
+		    //@Value está pegando lá do application.properties
+		    public CarProducer(@Value("${topic.name}") String topic, KafkaTemplate<String, CarDTO> kafkaTemplate){
+		        this.topic = topic;
+		        this.kafkaTemplate = kafkaTemplate;
+		    }
+
+		    public void send(CarDTO carDTO){
+		        kafkaTemplate.send(topic, carDTO).addCallback(
+		                succesS -> logger.info("A mensagem foi enviada "+ succesS.getProducerRecord().value()),
+		                failure -> logger.info("Mensagem falhou " + failure.getMessage())
+		        );
+		    }
+		}
+
+	Veja que a classe é anotado com @Service;
+	Que o nome do topic está no arquivo application.properties e por isso pegamos o mesmo com @Value();
+	Estamos usando o Logger para printar logs.
+
+	5) Criamos no pacote controller a classe CarController para ter um path para enviar nossa mensagem. Veja a classe:
+
+		@RestController
+		@RequestMapping("/cars")
+		public class CarController {
+
+		    @Autowired
+		    private CarProducer carProducer;
+
+		    @PostMapping
+		    public ResponseEntity<CarDTO> create(@RequestBody CarDTO carDTO){
+		        carDTO.setId(UUID.randomUUID().toString());
+		        carProducer.send(carDTO);
+		        return ResponseEntity.status(HttpStatus.CREATED).body(carDTO);
+		    }
+		}
+
+	6) Vamos agorar cirar a classe para configurar o Kafka. Lembre-se que nosso KafkaTemplate é de <String,CarDTO> e certamente o Kafka não sabe tratar
+	mensagens do tipo CarDTO, então teremos que criar a classe que configura isso (Se fosse <String, String> não precisaria). Veja como ficou:
+
+		@Configuration
+		public class KafkaProducerConfig {
+
+		    @Value(value = "${spring.kafka.bootstrap-servers}")
+		    private String bootstrapAddress;
+
+		    @Value(value = "${topic.name}")
+		    private String topic;
+
+		    //Criando o topic via aplicação
+		    @Bean
+		    public NewTopic createTopic() {
+		        return new NewTopic(topic, 3, (short) 1);
+		    }
+
+		    //Cada config é colocada no mapa.
+		    @Bean
+		    public ProducerFactory<String, CarDTO> CarProducerFactory() {
+		        Map<String, Object> configProps = new HashMap<>();
+		        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapAddress);
+		        configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+		        configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+		        return new DefaultKafkaProducerFactory<>(configProps);
+		    }
+
+		    @Bean
+		    public KafkaTemplate<String, CarDTO> carKafkaTemplate() {
+		        return new KafkaTemplate<>(CarProducerFactory());
+		    }
+
+		}
+
+	O atributo bootstrapAddress é o endereço do nosso broker (Kafka) e pagamos seu valor no application.properties;
+	O atributo topic é o nome do topico e pagamos seu valor no application.properties;
+	O metodo createTopic() é para criar o topico no nosso kafka via aplicação;
+	Cada configuração que queremos fazer é colocada no mapa configProps. Por fim será retornado um KafkaTemplate com nossas configurações.
+	
+
+- Criando um Consumidor de Mensagem em Java com Spring (Kafka deve estar rodando!):
+
+	1) Criar um projeto Spring em https://start.spring.io/ Em dependencias colocamos Lombok, Spring Web e Spring For Apache Kafka;
+
+	2) Vamos mudar a porta de nossa aplicação para rodar na 8081, pois o Producer já roda em 8080. Depois disso vamos indicar qual topico e o endereço 	do Broker que vamos ouvir. Por fim vem a configuração que atribui o Consumer a um grupo. Então no arquivo application.properties ficará assim:
+
+		server.port = 8081
+
+		topic.name = cars
+
+		spring.kafka.bootstrap-servers=localhost:9092
+
+		spring.kafka.group-id=appCar
+
+	3) Criar dentro do pacote DTO a classe CarDTO. Ela ficará assim:
+
+		@Data
+		@Builder
+		public class CarDTO {
+
+    		private String id;
+   		private String model;
+    		private String color;
+
+		}
+
+	4) Vamos agorar cirar a classe para configurar o Kafka. Lembre-se que nossa mensagem é do tipo CarDTO e certamente o Kafka não sabe tratar
+	mensagens do tipo CarDTO, então teremos que criar a classe que configura isso (Se fosse <String, String> não precisaria). Veja como ficou:
+
+		@Configuration
+		public class kafkaConsumerConfig {
+
+		    @Value(value = "${spring.kafka.bootstrap-servers}")
+		    private String bootstrapAddress;
+
+		    @Value(value = "${spring.kafka.group-id}")
+		    private String groupId;
+
+
+		    @Bean
+		    public ConsumerFactory<String, CarDTO> carConsumerFactory() {
+		        Map<String, Object> props = new HashMap<>();
+		        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapAddress);
+		        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+		        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+		        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+		        return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), new JsonDeserializer<>(CarDTO.class, false));
+		    }
+
+		    @Bean
+		    public ConcurrentKafkaListenerContainerFactory<String, CarDTO> carKafkaListenerContainerFactory() {
+		        ConcurrentKafkaListenerContainerFactory<String, CarDTO> factory = new ConcurrentKafkaListenerContainerFactory<>();
+		        factory.setConsumerFactory(carConsumerFactory());
+		        return factory;
+		    }
+		}
+
+	O atributo bootstrapAddress é o endereço do nosso broker (Kafka) e pagamos seu valor no application.properties;
+	O atributo groupId é o nome do grupo desse consumidor e pagamos seu valor no application.properties;
+	Cada configuração que queremos fazer é colocada no mapa props. Por fim será retornado um facotry com nossas configurações.
+
+	5) Agora vamos cirar o Consumidor de fato. Vamos criar no pacote consumer a classe CarConsumer. Veja como ficou:
+
+		@Service
+		public class CarConsumer {
+
+		    private static final Logger logger = LoggerFactory.getLogger(CarConsumer.class);
+
+		    @Value(value = "${topic.name}")
+		    private String topic;
+
+		    @Value(value = "${spring.kafka.group-id}")
+		    private String groupId;
+
+		    //Estamos passando nessa anotação o topico a ser consultado, o grupo do consumer e o
+		    // containerFacotry que ciramos no arquivo de configuração KafkaConsumerConfig
+		    //A vantagem de usar ConsumerRecord no lugar de apenas CarDTO é que conseguimos ter dados do Broker
+    	@KafkaListener(topics = "${topic.name}", groupId = "${spring.kafka.group-id}", containerFactory = "carKafkaListenerContainerFactory")
+    		public void listenTopicCar(ConsumerRecord<String, CarDTO> mensagem){
+        		logger.info("A chave da mensagem é: "+mensagem.key());
+        		logger.info("A mensagem é: "+mensagem.value());
+        		logger.info("A partição da mensagem é: "+mensagem.partition());
+    		}
+	}
+
+	Veja que estamos tratando a mensagem lida como ConsumerRecord ao inves de só CarDTO, e o motivo é que com objeto ConsumerRecord temos dados do
+Kafka;
+	A anotação @KafkaListener é que faz o método ler as mensagens e passamos nela o topico, o grupo do consumer e por fim o Factory que criamos na classe de configuração kafkaConsumerConfig.
+
+
+- Para testar tudo basta subir o kafka (tem que levantar o Zookeeper primeiro), depois disso levantar a aplicação Producer e depois a Consumer. Com tudo 
+levantado podemos fazer um Post para API Producer e na API Consumer veremos o Log printando a mensagem!

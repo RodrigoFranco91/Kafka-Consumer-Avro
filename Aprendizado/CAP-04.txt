@@ -1,0 +1,69 @@
+Neste Capítulo falamos sobre o Schema Registry.
+
+
+- O Schema Registry é um sistema/serviço que registra o padrão de nossas mensagens. Funciona como se fosse um contrato, que define o formato que queremos de
+mensagem.
+
+- Quando um produtor for enviar uma mensagem ao Kafka, o Kafka vai consultar no Schame Registry o modelo de mensagem esperado (aceito) e irá comparar com
+a mensagem que o produtor enviou, se estiver correto a mensagem seguirá para o tópico.
+
+- O Consumidor ao receber a mensagem ele também consulta o Schema Registry para verificar se a mesma segue o padrão, se seguir ele vai desserializar a
+mensagem.
+
+- O Padrão da mensagem que queremos aceitar (o contrato) é chamado de Schema
+
+- Vamos adicionar no nosso arquivo docker-compose o Schema Registry. Para executar o comando é docker-compose up -d. Veja o trecho que adiciona o Schema
+Registry:
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:5.5.1
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - zookeeper
+      - broker
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+
+- Para consultar o nosso Schema podemos acessar o endereço (Pode ser via navegador): localhost:8081
+
+- Criando nosso primeiro Schema que será em Avro:
+
+	1) Criar o arquivo people.avsc;
+
+	2) O conteudo do arquivo será:
+
+		{
+		    "type": "record",
+		    "name": "People",
+		    "namespace": "br.com.springkafka",
+		    "fields": [
+		        {
+		            "name": "id", 
+		            "type": "string"
+		        },
+		        {
+		            "name": "name", 
+		            "type": "string"
+		        },
+		        {
+		            "name": "cpf", 
+		            "type": "string"
+		        },        
+		        {
+		            "name": "books", 
+		            "type": {
+		                "type": "array",
+		                "items": "string"
+		                }
+		        }
+		    ]
+		}
+
+	Logo a nossa mensagem parar ser aceita terá que ter um id, name, cpf e um array de books.
+
+- Parar saber mais, consultar: https://docs.confluent.io/platform/current/schema-registry/schema_registry_ccloud_tutorial.html
+

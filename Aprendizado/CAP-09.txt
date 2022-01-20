@@ -1,0 +1,13 @@
+Este é um capítulo de conteúdo extra. Sempre vai surgindo coisa nova. Até o momento temos:
+
+
+- Separando Produtor e Consumidor:
+
+	1) Na vida real existe projeto para Produto e outro para consumidor. Vamos no workspace e duplicar a pasta do projeto e renomear uma para producer e outra para consumer.
+
+	2) Abrir cada projeto e deixar apenas os pacotes (classes) que pertecem ao contexto do projeto. Devemos também deixar cada projeto em uma porta, para conseguirmos rodar os dois juntos.
+
+
+- Criando novo Avro, Controller, DTO e Producer:
+
+
